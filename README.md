@@ -6,7 +6,8 @@ App per pianificare lo studio. Si installa su **Windows, Linux e iPhone** come P
 
 Cosa contiene:
 - **Oggi**: countdown al prossimo esame, timer delle sessioni di studio, piano del giorno, prossime scadenze e avanzamento per materia
-- **Piano**: attività divise per materia, con checkbox, priorità e data entro cui finirle. Con ☀ un'attività entra nel "piano di oggi"
+- **Piano**: attività con checkbox, priorità e scadenza, viste **per materia** oppure **per giorno** (i prossimi 7 giorni). Con 📅 scegli in che giorno fare un'attività (su PC puoi anche trascinarla), con ☀ la metti nel "piano di oggi". Le attività non completate restano nel piano di oggi finché non le fai
+- **Piano di oggi**: oltre a scrivere nuove attività, con **Importa dal piano** scegli quelle che hai già nel Piano
 - **Calendario**: vista mensile con esami, consegne e altre scadenze
 - **Statistiche**: ore studiate per giorno e per materia, streak di giorni consecutivi, mappa della costanza e sessioni recenti
 - **Materiali**: carichi dispense, appunti, slide e immagini divisi per materia, e li apri da qualsiasi dispositivo

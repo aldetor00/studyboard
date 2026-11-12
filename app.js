@@ -275,13 +275,28 @@ function sortTasks(list) {
     ((a.createdAt || 0) - (b.createdAt || 0)));
 }
 
+/** Giorno in cui l'attività è pianificata ('' se nessuno). Il vecchio flag "today" vale come oggi. */
+const taskDay = (t) => t.day || (t.today ? today() : '');
+/** L'attività è nel piano di oggi: pianificata per oggi o per un giorno passato e non ancora fatta. */
+const inTodayPlan = (t) => { const d = taskDay(t); return !!d && d <= today(); };
+
 function todayTasks() {
   const t = today();
   return sortTasks(store.all('task').filter((x) => {
-    const planned = x.today || (x.due && x.due <= t);
+    const planned = inTodayPlan(x) || (x.due && x.due <= t);
     if (!x.done) return planned;
     return planned && x.completedAt && ymd(new Date(x.completedAt)) === t;
   }));
+}
+
+/** "Oggi", "Domani", oppure "gio 14 nov". */
+function dayLabel(k, { long = false } = {}) {
+  const n = daysBetween(today(), k);
+  const d = parseYmd(k);
+  const base = `${WEEKDAYS[(d.getDay() + 6) % 7]} ${d.getDate()}${long ? ' ' + MONTHS[d.getMonth()].slice(0, 3) : ''}`;
+  if (n === 0) return long ? `Oggi · ${base}` : 'Oggi';
+  if (n === 1) return long ? `Domani · ${base}` : 'Domani';
+  return base;
 }
 
 function subjectProgress(subjectId) {
@@ -378,7 +393,8 @@ const ui = (() => {
   try { saved = JSON.parse(localStorage.getItem(LS_UI)) || {}; } catch { /* ignore */ }
   const now = new Date();
   return {
-    showDone: false, planSubject: 'all', timerSubject: '', filesSubject: 'all', uploadSubject: '', ...saved,
+    showDone: false, planSubject: 'all', planMode: 'materie', timerSubject: '', filesSubject: 'all', uploadSubject: '', ...saved,
+    planWeek: 0,
     chatDraft: '', chatAttachments: [],
     calMonth: new Date(now.getFullYear(), now.getMonth(), 1),
     calSelected: today(),
@@ -388,7 +404,7 @@ const ui = (() => {
 function saveUi() {
   try {
     localStorage.setItem(LS_UI, JSON.stringify({
-      showDone: ui.showDone, planSubject: ui.planSubject, timerSubject: ui.timerSubject, filesSubject: ui.filesSubject, uploadSubject: ui.uploadSubject,
+      showDone: ui.showDone, planSubject: ui.planSubject, planMode: ui.planMode, timerSubject: ui.timerSubject, filesSubject: ui.filesSubject, uploadSubject: ui.uploadSubject,
     }));
   } catch { /* ignore */ }
 }
@@ -501,9 +517,18 @@ function dueBadge(t) {
   if (t.due === td) return '<span class="badge warn">Entro oggi</span>';
   return `<span class="badge">Entro ${fmtShort(t.due)}</span>`;
 }
-function taskRow(t, { showSubject = true } = {}) {
+function dayBadge(t, hideDay) {
+  const d = taskDay(t);
+  if (!d || d === hideDay) return '';
+  const td = today();
+  if (d < td && !t.done) return `<span class="badge warn">${ic('calendar', 'sm')} Rimandata dal ${fmtShort(d)}</span>`;
+  if (d === td) return '';
+  return `<span class="badge plan">${ic('calendar', 'sm')} ${dayLabel(d)}</span>`;
+}
+function taskRow(t, { showSubject = true, hideDay = null, draggable = false } = {}) {
+  const inToday = inTodayPlan(t);
   return `
-    <li class="task ${t.done ? 'done' : ''}">
+    <li class="task ${t.done ? 'done' : ''}" ${draggable ? `draggable="true" data-drag-task="${t.id}"` : ''}>
       <label class="checkbox" title="${t.done ? 'Segna come da fare' : 'Segna come completata'}">
         <input type="checkbox" data-change="task-toggle" data-id="${t.id}" ${t.done ? 'checked' : ''}><span></span>
       </label>
@@ -513,11 +538,13 @@ function taskRow(t, { showSubject = true } = {}) {
           ${showSubject ? subjectChip(t.subjectId) : ''}
           ${t.priority === 'alta' ? '<span class="badge prio">Priorità alta</span>' : ''}
           ${t.priority === 'bassa' ? '<span class="badge soft">Bassa</span>' : ''}
+          ${dayBadge(t, hideDay)}
           ${dueBadge(t)}
         </div>
       </div>
       <div class="task-actions">
-        <button class="icon-btn ${t.today ? 'on' : ''}" data-action="task-today" data-id="${t.id}" title="${t.today ? 'Togli dal piano di oggi' : 'Aggiungi al piano di oggi'}" aria-label="Piano di oggi">${ic('sun')}</button>
+        <button class="icon-btn ${inToday ? 'on' : ''}" data-action="task-today" data-id="${t.id}" title="${inToday ? 'Togli dal piano di oggi' : 'Aggiungi al piano di oggi'}" aria-label="Piano di oggi">${ic('sun')}</button>
+        <button class="icon-btn ${taskDay(t) && !inToday ? 'on-plan' : ''}" data-action="task-day" data-id="${t.id}" title="Scegli il giorno" aria-label="Scegli il giorno">${ic('calendar')}</button>
         <button class="icon-btn" data-action="task-edit" data-id="${t.id}" title="Modifica" aria-label="Modifica">${ic('edit')}</button>
         <button class="icon-btn" data-action="task-delete" data-id="${t.id}" title="Elimina" aria-label="Elimina">${ic('trash')}</button>
       </div>
@@ -584,7 +611,10 @@ function viewHome() {
       <section class="card today-card">
         <header class="card-head">
           <h2>Piano di oggi</h2>
-          <span class="muted small">${tasks.length ? `${doneCount}/${tasks.length} fatte` : ''}</span>
+          <div class="row gap-sm">
+            <span class="muted small">${tasks.length ? `${doneCount}/${tasks.length} fatte` : ''}</span>
+            <button class="btn ghost sm" data-action="import-today" title="Scegli attività dal Piano">${ic('plan')} Importa dal piano</button>
+          </div>
         </header>
         ${tasks.length ? `<div class="progress"><i style="width:${Math.round((doneCount / tasks.length) * 100)}%"></i></div>` : ''}
         <form class="quick-add" data-form="quick-task" data-today="1">
@@ -593,7 +623,7 @@ function viewHome() {
           <button class="icon-btn solid" aria-label="Aggiungi">${ic('plus')}</button>
         </form>
         ${tasks.length ? `<ul class="task-list">${tasks.map((t) => taskRow(t)).join('')}</ul>`
-          : emptyState('Nessuna attività per oggi. Aggiungine una qui sopra, oppure tocca ☀ su un\'attività del Piano.')}
+          : emptyState('Nessuna attività per oggi. Scrivine una qui sopra, oppure prendile da quelle che hai già nel Piano.', `<button class="btn primary sm" data-action="import-today">${ic('plan')} Importa dal piano</button>`)}
       </section>
 
       <div class="home-side">
@@ -687,8 +717,16 @@ function viewPlan() {
 
   const shown = groups.filter((g) => g.tasks.length || (filter === g.id));
   const doneHidden = all.filter((t) => t.done).length;
+  const byDay = ui.planMode === 'giorni';
 
   return `
+    <div class="plan-modes">
+      <div class="segmented" role="tablist">
+        <button class="${byDay ? '' : 'on'}" data-action="plan-mode" data-mode="materie" role="tab" aria-selected="${!byDay}">${ic('plan', 'sm')} Per materia</button>
+        <button class="${byDay ? 'on' : ''}" data-action="plan-mode" data-mode="giorni" role="tab" aria-selected="${byDay}">${ic('calendar', 'sm')} Per giorno</button>
+      </div>
+      ${byDay ? `<button class="btn ghost sm" data-action="plan-week-ask">${ic('sparkle')} Distribuisci con l'assistente</button>` : ''}
+    </div>
     <div class="toolbar">
       <div class="chips-scroll">
         <button class="filter ${filter === 'all' ? 'on' : ''}" data-action="plan-filter" data-subject="all">Tutte</button>
@@ -709,7 +747,7 @@ function viewPlan() {
 
     ${!subs.length && !all.length ? emptyState('Il piano è vuoto. Crea prima le tue materie, poi aggiungi le attività da fare per ognuna.', `<button class="btn primary" data-action="subject-new">${ic('plus')} Aggiungi materia</button>`) : ''}
 
-    <div class="plan-groups">
+    ${byDay ? planDaysHtml(visible) : `<div class="plan-groups">
       ${shown.map((g) => {
         const p = g.id === 'none' ? null : subjectProgress(g.id);
         return `<section class="card plan-group" style="--c:${esc(g.color)}">
@@ -727,6 +765,51 @@ function viewPlan() {
             : `<p class="muted small pad">${ui.showDone ? 'Nessuna attività.' : 'Tutto fatto qui 🎉'}</p>`}
         </section>`;
       }).join('')}
+    </div>`}`;
+}
+
+/** Vista "Per giorno": attività da pianificare + i prossimi 7 giorni. */
+function planDaysHtml(visible) {
+  const td = today();
+  const week = ui.planWeek || 0;
+  const start = addDays(new Date(), week * 7);
+  const days = [...Array(7)].map((_, i) => ymd(addDays(start, i)));
+  const buckets = { '': [] };
+  days.forEach((k) => { buckets[k] = []; });
+  for (const t of visible) {
+    let d = taskDay(t);
+    if (d && d < td) {
+      if (t.done) continue;
+      d = td; // le attività rimandate compaiono oggi
+    }
+    if (buckets[d]) buckets[d].push(t);
+  }
+  const canDrag = window.matchMedia('(hover: hover)').matches;
+  const column = (k, title, extraCls = '') => {
+    const list = sortTasks(buckets[k]);
+    const isToday = k === td;
+    return `<section class="card day-col ${extraCls} ${isToday ? 'is-today' : ''}" data-drop-day="${k}">
+      <header class="card-head">
+        <h2>${title}</h2>
+        <div class="row gap-sm">
+          <span class="muted small">${list.filter((t) => !t.done).length || ''}</span>
+          <button class="icon-btn" data-action="task-new" data-day="${k}" title="Nuova attività" aria-label="Nuova attività">${ic('plus')}</button>
+        </div>
+      </header>
+      ${list.length ? `<ul class="task-list">${list.map((t) => taskRow(t, { hideDay: k || null, draggable: canDrag })).join('')}</ul>`
+        : `<p class="muted small pad drop-hint">${k ? (canDrag ? 'Trascina qui le attività, o usa 📅 su un\'attività.' : 'Usa 📅 su un\'attività per spostarla qui.') : 'Tutte le attività hanno un giorno.'}</p>`}
+    </section>`;
+  };
+  const rangeLabel = week === 0 ? 'Prossimi 7 giorni' : `${fmtShort(days[0])} – ${fmtShort(days[6])}`;
+  return `
+    <div class="week-nav">
+      <button class="icon-btn" data-action="plan-week" data-dir="-1" aria-label="Settimana precedente" ${week === 0 ? 'disabled' : ''}>${ic('chevL')}</button>
+      <b>${rangeLabel}</b>
+      <button class="icon-btn" data-action="plan-week" data-dir="1" aria-label="Settimana successiva">${ic('chevR')}</button>
+    </div>
+    <div class="day-cols">
+      ${column('', `${ic('plan', 'sm')} Da pianificare`, 'unplanned')}
+      ${days.map((k) => column(k, dayLabel(k, { long: true }))).join('')}
     </div>`;
 }
 
@@ -742,8 +825,12 @@ function viewCalendar() {
 
   const deadlinesByDay = {};
   for (const d of store.all('deadline')) (deadlinesByDay[d.date] ||= []).push(d);
+  // Per ogni giorno: attività pianificate quel giorno o con scadenza quel giorno (senza doppioni).
   const tasksByDay = {};
-  for (const t of store.all('task')) if (t.due && !t.done) (tasksByDay[t.due] ||= []).push(t);
+  for (const t of store.all('task')) {
+    if (t.done) continue;
+    for (const k of new Set([taskDay(t), t.due].filter(Boolean))) (tasksByDay[k] ||= []).push(t);
+  }
   const m = msByDay();
 
   let cells = '';
@@ -766,6 +853,7 @@ function viewCalendar() {
   const sel = ui.calSelected;
   const selDl = (deadlinesByDay[sel] || []);
   const selTasks = sortTasks(store.all('task').filter((t) => t.due === sel));
+  const selPlanned = sortTasks(store.all('task').filter((t) => taskDay(t) === sel));
   const selSessions = store.all('session').filter((s) => s.date === sel);
 
   return `
@@ -795,6 +883,8 @@ function viewCalendar() {
         </header>
         <h3>Scadenze</h3>
         ${selDl.length ? `<ul class="deadline-list">${selDl.map((d) => deadlineRow(d, { actions: true })).join('')}</ul>` : '<p class="muted small">Nessuna scadenza.</p>'}
+        <h3>Attività pianificate per questo giorno</h3>
+        ${selPlanned.length ? `<ul class="task-list">${selPlanned.map((t) => taskRow(t, { hideDay: sel })).join('')}</ul>` : `<p class="muted small">Nessuna. <button class="link" data-action="task-new" data-day="${sel}">Aggiungi attività</button></p>`}
         <h3>Attività da finire entro questo giorno</h3>
         ${selTasks.length ? `<ul class="task-list">${selTasks.map((t) => taskRow(t)).join('')}</ul>` : `<p class="muted small">Nessuna. <button class="link" data-action="task-new" data-due="${sel}">Aggiungi attività</button></p>`}
         <h3>Studio</h3>
@@ -1249,7 +1339,7 @@ function buildContext() {
   lines.push('', 'ATTIVITÀ DA FARE:');
   if (!open.length) lines.push('(nessuna)');
   for (const t of open) {
-    lines.push(`- id ${t.id}: "${t.title}" | materia: ${sub(t.subjectId)} | priorità ${t.priority || 'media'}${t.due ? ` | entro ${t.due}` : ''}${t.today ? ' | nel piano di oggi' : ''}`);
+    lines.push(`- id ${t.id}: "${t.title}" | materia: ${sub(t.subjectId)} | priorità ${t.priority || 'media'}${t.due ? ` | scadenza entro ${t.due}` : ''}${taskDay(t) ? ` | pianificata per il ${taskDay(t)}${taskDay(t) < td ? ' (rimandata, quindi è nel piano di oggi)' : ''}` : ' | non ancora pianificata'}`);
   }
   lines.push('', 'ATTIVITÀ COMPLETATE NEGLI ULTIMI 14 GIORNI:');
   if (!recentDone.length) lines.push('(nessuna)');
@@ -1293,7 +1383,9 @@ Quando lo studente chiede di cambiare il piano (aggiungere, spostare, modificare
 - date nel formato AAAA-MM-GG, orari nel formato HH:MM;
 - priority vale "alta", "media" o "bassa"; deadline_type vale "esame", "consegna" o "altro";
 - nei campi che non servono per l'operazione metti null; in update_* metti null nei campi da lasciare invariati;
-- "today": true mette l'attività nel piano di oggi;
+- "day" è il giorno in cui lo studente farà l'attività (AAAA-MM-GG): per distribuire le attività sui prossimi giorni usa update_task con "day", e per le nuove attività indica "day" se ha senso; "due" invece è la scadenza entro cui finirla;
+- "today": true equivale a "day" = oggi (mette l'attività nel piano di oggi);
+- quando distribuisci il lavoro su più giorni, non mettere troppe attività nello stesso giorno e tieni conto di scadenze ed esami;
 - proponi attività concrete e piccole (es. "Esercizi capitolo 4: integrali per parti"), non obiettivi vaghi.
 Se non serve modificare nulla, "actions" è una lista vuota.`;
 
@@ -1312,13 +1404,14 @@ const GEMINI_SCHEMA = {
           id: G_STR, title: G_STR, subject_id: G_STR, subject_name: G_STR,
           priority: { type: 'STRING', nullable: true, enum: ['alta', 'media', 'bassa'] },
           due: G_STR,
+          day: G_STR,
           today: { type: 'BOOLEAN', nullable: true },
           done: { type: 'BOOLEAN', nullable: true },
           date: G_STR, time: G_STR,
           deadline_type: { type: 'STRING', nullable: true, enum: ['esame', 'consegna', 'altro'] },
         },
         required: ['op'],
-        propertyOrdering: ['op', 'id', 'title', 'subject_id', 'subject_name', 'priority', 'due', 'today', 'done', 'date', 'time', 'deadline_type'],
+        propertyOrdering: ['op', 'id', 'title', 'subject_id', 'subject_name', 'priority', 'due', 'day', 'today', 'done', 'date', 'time', 'deadline_type'],
       },
     },
   },
@@ -1441,7 +1534,8 @@ function describeAction(a, html = true) {
   if (a.priority) bits.push(`priorità ${a.priority}`);
   if (isYmd(a.due)) bits.push(`entro ${fmtShort(a.due)}`);
   if (isYmd(a.date)) bits.push(`${fmtShort(a.date)}${isHm(a.time) ? ' ' + a.time : ''}`);
-  if (a.today) bits.push('nel piano di oggi');
+  if (isYmd(a.day)) bits.push(a.day === today() ? 'nel piano di oggi' : `da fare ${dayLabel(a.day, { long: true }).toLowerCase()}`);
+  else if (a.today) bits.push('nel piano di oggi');
   if (a.done === true) bits.push('segna come fatta');
   if (a.done === false) bits.push('segna da fare');
   const extra = bits.length ? ` · ${bits.map((b) => (html ? esc(b) : b)).join(' · ')}` : '';
@@ -1483,6 +1577,7 @@ function applyAction(a) {
       if (!title) return false;
       store.put('task', uid(), {
         title, subjectId: resolveSubject() || '', priority: priority || 'media', due: isYmd(a.due) ? a.due : '',
+        day: isYmd(a.day) ? a.day : (a.today ? today() : ''),
         today: !!a.today, done: false, completedAt: null, createdAt: Date.now(),
       }, opts);
       return true;
@@ -1494,7 +1589,7 @@ function applyAction(a) {
       const s = resolveSubject(); if (s) p.subjectId = s;
       if (priority) p.priority = priority;
       if (isYmd(a.due)) p.due = a.due;
-      if (typeof a.today === 'boolean') p.today = a.today;
+      if (isYmd(a.day)) { p.day = a.day; p.today = false; } else if (typeof a.today === 'boolean') { p.day = a.today ? today() : ''; p.today = false; }
       if (typeof a.done === 'boolean') { p.done = a.done; p.completedAt = a.done ? Date.now() : null; }
       store.patch(a.id, p, opts);
       return true;
@@ -1615,6 +1710,7 @@ const CHAT_SUGGESTIONS = [
   'Cosa dovrei studiare oggi?',
   'Crea un piano di ripasso per il prossimo esame',
   'Sono indietro: aiutami a riorganizzare le attività di questa settimana',
+  'Distribuisci le mie attività sui prossimi giorni',
   'Come sto andando con lo studio nelle ultime due settimane?',
 ];
 
@@ -1743,7 +1839,8 @@ function closeModal() {
 }
 
 function taskModal(task = null, preset = {}) {
-  const t = task || { title: '', subjectId: preset.subjectId || '', priority: 'media', due: preset.due || '', today: !!preset.today };
+  const t = task || { title: '', subjectId: preset.subjectId || '', priority: 'media', due: preset.due || '', day: preset.day || '' };
+  const curDay = task ? taskDay(task) : t.day;
   openModal({
     title: task ? 'Modifica attività' : 'Nuova attività',
     submitLabel: task ? 'Salva' : 'Aggiungi',
@@ -1754,13 +1851,89 @@ function taskModal(task = null, preset = {}) {
         <label class="field"><span>Priorità</span><select name="priority">${Object.entries(PRIORITY).map(([k, v]) => `<option value="${k}" ${k === (t.priority || 'media') ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>
       </div>
       <div class="row2">
-        <label class="field"><span>Da finire entro (opzionale)</span><input type="date" name="due" value="${esc(t.due || '')}"></label>
-        <label class="check"><input type="checkbox" name="today" ${t.today ? 'checked' : ''}> Nel piano di oggi</label>
+        <label class="field"><span>Giorno in cui farla (opzionale)</span><input type="date" name="day" value="${esc(curDay || '')}"></label>
+        <label class="field"><span>Scadenza: finire entro (opzionale)</span><input type="date" name="due" value="${esc(t.due || '')}"></label>
       </div>`,
     onSubmit: (fd) => {
-      const data = { title: fd.title.trim(), subjectId: fd.subjectId || '', priority: fd.priority || 'media', due: fd.due || '', today: fd.today === 'on' };
+      const data = { title: fd.title.trim(), subjectId: fd.subjectId || '', priority: fd.priority || 'media', due: fd.due || '', day: fd.day || '', today: false };
       if (task) store.patch(task.id, data);
       else store.put('task', uid(), { ...data, done: false, completedAt: null, createdAt: Date.now() });
+    },
+  });
+}
+
+/** Imposta il giorno ('' = nessuno) per una o più attività. */
+function setTasksDay(ids, day) {
+  ids.forEach((id) => { if (store.get(id)) store.patch(id, { day, today: false }, { silent: true }); });
+  render(true);
+  scheduleSync();
+  const n = ids.length;
+  toast(!day ? (n === 1 ? 'Giorno rimosso' : `Giorno rimosso da ${n} attività`)
+    : day === today() ? (n === 1 ? 'Aggiunta al piano di oggi' : `${n} attività aggiunte al piano di oggi`)
+    : `${n === 1 ? 'Spostata' : `${n} attività spostate`} a ${dayLabel(day, { long: true }).toLowerCase()}`);
+}
+
+/** Scelta rapida del giorno: oggi, domani, i prossimi giorni, oppure una data. */
+function dayPickerModal(ids) {
+  const t = ids.length === 1 ? store.get(ids[0]) : null;
+  const cur = t ? taskDay(t) : '';
+  const now = new Date();
+  const days = [...Array(7)].map((_, i) => ymd(addDays(now, i)));
+  const nextMonday = ymd(addDays(weekStart(now), 7));
+  if (!days.includes(nextMonday)) days.push(nextMonday);
+  const idsAttr = esc(ids.join(','));
+  openModal({
+    title: t ? `Quando fai «${t.title}»?` : 'Scegli il giorno',
+    submitLabel: 'Usa questa data',
+    body: `
+      <div class="day-grid">
+        ${days.map((k) => `<button type="button" class="day-btn ${k === cur ? 'on' : ''}" data-action="pick-day" data-ids="${idsAttr}" data-date="${k}">
+          <b>${daysBetween(today(), k) <= 1 ? dayLabel(k) : cap(WEEKDAYS[(parseYmd(k).getDay() + 6) % 7])}</b>
+          <span>${parseYmd(k).getDate()} ${MONTHS[parseYmd(k).getMonth()].slice(0, 3)}</span>
+        </button>`).join('')}
+      </div>
+      <label class="field"><span>Un altro giorno</span><input type="date" name="date" value="${esc(cur && !days.includes(cur) ? cur : '')}" min="${today()}"></label>
+      ${cur ? `<button type="button" class="btn ghost sm" data-action="pick-day" data-ids="${idsAttr}" data-date="">${ic('x')} Nessun giorno</button>` : ''}`,
+    onSubmit: (fd) => {
+      if (!fd.date) { toast('Scegli una data'); return false; }
+      setTasksDay(ids, fd.date);
+    },
+  });
+}
+
+/** Sceglie dal Piano le attività da mettere nel piano di oggi. */
+function importTodayModal() {
+  const candidates = store.all('task').filter((t) => !t.done && !inTodayPlan(t) && !(t.due && t.due <= today()));
+  if (!candidates.length) {
+    toast(store.all('task').some((t) => !t.done) ? 'Tutte le attività da fare sono già nel piano di oggi' : 'Il Piano è vuoto: aggiungi prima qualche attività');
+    return;
+  }
+  const groups = [];
+  for (const s of subjects()) {
+    const list = candidates.filter((t) => t.subjectId === s.id);
+    if (list.length) groups.push({ name: s.name, color: s.color, list });
+  }
+  const orphan = candidates.filter((t) => !subjectById(t.subjectId));
+  if (orphan.length) groups.push({ name: 'Senza materia', color: 'var(--muted)', list: orphan });
+  openModal({
+    title: 'Importa nel piano di oggi',
+    submitLabel: 'Aggiungi a oggi',
+    body: `
+      <p class="muted small">Scegli le attività del Piano che vuoi fare oggi.</p>
+      <div class="import-list">
+        ${groups.map((g) => `<div class="import-group" style="--c:${esc(g.color)}">
+          <div class="import-head"><span class="chip"><i></i>${esc(g.name)}</span></div>
+          ${sortTasks(g.list).map((t) => `<label class="check import-item">
+            <input type="checkbox" name="t_${t.id}">
+            <span class="import-title">${esc(t.title)}</span>
+            <span class="import-meta">${dayBadge(t)}${t.priority === 'alta' ? '<span class="badge prio">Alta</span>' : ''}${t.due ? `<span class="badge">Entro ${fmtShort(t.due)}</span>` : ''}</span>
+          </label>`).join('')}
+        </div>`).join('')}
+      </div>`,
+    onSubmit: (fd) => {
+      const ids = Object.keys(fd).filter((k) => k.startsWith('t_')).map((k) => k.slice(2));
+      if (!ids.length) { toast('Seleziona almeno un\'attività'); return false; }
+      setTasksDay(ids, today());
     },
   });
 }
@@ -1834,10 +2007,33 @@ function sessionModal() {
 /* ---------------------------------------------------------------- actions */
 const ACTIONS = {
   'modal-close': () => closeModal(),
-  'task-new': (el) => taskModal(null, { subjectId: el.dataset.subject || (ui.planSubject !== 'all' && ui.planSubject !== 'none' ? ui.planSubject : ''), due: el.dataset.due || '', today: currentView() === 'home' }),
+  'task-new': (el) => taskModal(null, {
+    subjectId: el.dataset.subject || (ui.planSubject !== 'all' && ui.planSubject !== 'none' ? ui.planSubject : ''),
+    due: el.dataset.due || '',
+    day: el.dataset.day !== undefined ? el.dataset.day : (currentView() === 'home' ? today() : ''),
+  }),
   'task-edit': (el) => { const t = store.get(el.dataset.id); if (t) taskModal(t); },
   'task-delete': (el) => { const t = store.get(el.dataset.id); if (t && confirm(`Eliminare l'attività "${t.title}"?`)) store.remove(t.id); },
-  'task-today': (el) => { const t = store.get(el.dataset.id); if (t) { store.patch(t.id, { today: !t.today }); toast(t.today ? 'Tolta dal piano di oggi' : 'Aggiunta al piano di oggi'); } },
+  'task-today': (el) => {
+    const t = store.get(el.dataset.id);
+    if (!t) return;
+    const was = inTodayPlan(t);
+    store.patch(t.id, { day: was ? '' : today(), today: false });
+    toast(was ? 'Tolta dal piano di oggi' : 'Aggiunta al piano di oggi');
+  },
+  'task-day': (el) => { const t = store.get(el.dataset.id); if (t) dayPickerModal([t.id]); },
+  'pick-day': (el) => {
+    const ids = (el.dataset.ids || '').split(',').filter(Boolean);
+    setTasksDay(ids, el.dataset.date || '');
+    closeModal();
+  },
+  'import-today': () => importTodayModal(),
+  'plan-mode': (el) => { ui.planMode = el.dataset.mode; saveUi(); render(true); },
+  'plan-week': (el) => { ui.planWeek = Math.max(0, (ui.planWeek || 0) + Number(el.dataset.dir)); render(true); },
+  'plan-week-ask': () => {
+    ui.chatDraft = 'Distribuisci le mie attività da fare sui prossimi 7 giorni, tenendo conto delle scadenze e degli esami. Non mettere troppe cose nello stesso giorno.';
+    location.hash = '#assistente';
+  },
   'deadline-new': (el) => deadlineModal(null, { date: el.dataset.date, type: el.dataset.type }),
   'deadline-edit': (el) => { const d = store.get(el.dataset.id); if (d) deadlineModal(d); },
   'deadline-delete': (el) => { const d = store.get(el.dataset.id); if (d && confirm(`Eliminare la scadenza "${d.title}"?`)) store.remove(d.id); },
@@ -1975,7 +2171,8 @@ const FORMS = {
     const title = form.elements.title.value.trim();
     if (!title) { form.elements.title.focus(); return; }
     store.put('task', uid(), {
-      title, subjectId: form.elements.subjectId.value || '', priority: 'media', due: '', today: form.dataset.today === '1',
+      title, subjectId: form.elements.subjectId.value || '', priority: 'media', due: '',
+      day: form.dataset.today === '1' ? today() : (form.dataset.day || ''), today: false,
       done: false, completedAt: null, createdAt: Date.now(),
     });
     // Rimetti il focus sul campo per inserirne un'altra di seguito.
@@ -2025,6 +2222,36 @@ function bindEvents() {
       e.preventDefault();
       e.target.form.requestSubmit();
     }
+  });
+  // Trascina un'attività su un giorno (vista "Per giorno" del Piano, su PC).
+  const dropCol = (e) => (e.target.closest ? e.target.closest('[data-drop-day]') : null);
+  document.addEventListener('dragstart', (e) => {
+    const row = e.target.closest && e.target.closest('[data-drag-task]');
+    if (!row) return;
+    e.dataTransfer.setData('text/x-studyboard-task', row.dataset.dragTask);
+    e.dataTransfer.effectAllowed = 'move';
+    row.classList.add('dragging');
+  });
+  document.addEventListener('dragend', () => {
+    $$('.dragging').forEach((x) => x.classList.remove('dragging'));
+    $$('.day-col.over').forEach((x) => x.classList.remove('over'));
+  });
+  document.addEventListener('dragover', (e) => {
+    const col = dropCol(e);
+    if (col && e.dataTransfer.types.includes('text/x-studyboard-task')) { e.preventDefault(); col.classList.add('over'); }
+  });
+  document.addEventListener('dragleave', (e) => {
+    const col = dropCol(e);
+    if (col && !col.contains(e.relatedTarget)) col.classList.remove('over');
+  });
+  document.addEventListener('drop', (e) => {
+    const col = dropCol(e);
+    const id = e.dataTransfer.getData('text/x-studyboard-task');
+    if (!col || !id) return;
+    e.preventDefault();
+    col.classList.remove('over');
+    const t = store.get(id);
+    if (t && taskDay(t) !== col.dataset.dropDay) setTasksDay([id], col.dataset.dropDay);
   });
   // Trascina e rilascia i file nella sezione Materiali.
   document.addEventListener('dragover', (e) => {
