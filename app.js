@@ -596,6 +596,7 @@ function viewHome() {
           : emptyState('Nessuna attività per oggi. Aggiungine una qui sopra, oppure tocca ☀ su un\'attività del Piano.')}
       </section>
 
+      <div class="home-side">
       <section class="card">
         <header class="card-head"><h2>Prossime scadenze</h2><a href="#calendario" class="link small">Calendario</a></header>
         ${(() => {
@@ -615,6 +616,7 @@ function viewHome() {
           </li>`;
         }).join('')}</ul>` : emptyState('Aggiungi una materia per vedere i progressi.')}
       </section>
+      </div>
     </div>`;
 }
 
@@ -967,15 +969,6 @@ function viewSettings() {
             <a class="btn" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">${ic('open')} Crea la chiave</a>
             <button class="btn primary" data-action="gemini-key">${ic('plus')} Inserisci la chiave</button>
           </div>`}
-      </section>
-
-      <section class="card">
-        <header class="card-head"><h2>Privacy</h2></header>
-        <ul class="privacy-list small">
-          <li>${CLOUD_CONFIGURED ? 'Materie, attività, note e file sono salvati sul server Supabase di chi gestisce questa app. Gli altri utenti non possono vederli, ma il gestore tecnicamente sì.' : 'I tuoi dati sono salvati solo in questo browser.'}</li>
-          <li>Le domande all'assistente e i file allegati vanno direttamente da questo dispositivo a Google Gemini, con la tua chiave. Con il piano gratuito Google può usarli per migliorare i suoi servizi.</li>
-          <li>La chiave di Gemini resta solo su questo dispositivo e non passa dal server dell'app.</li>
-        </ul>
       </section>
 
       <section class="card">

@@ -545,3 +545,44 @@ a.stats-mini:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--l
 .auth-forgot { align-self: flex-start; }
 .privacy-list { margin: 0; padding-left: 18px; color: var(--muted); }
 .privacy-list li { margin: 6px 0; }
+/* =========================================================================
+   Layout regolare su PC: contenuto centrato e schede della stessa altezza per riga
+   ========================================================================= */
+.topbar, .view { width: 100%; max-width: 1240px; margin-left: auto; margin-right: auto; }
+.home-grid, .plan-groups, .stats-grid, .settings { align-items: stretch; }
+.home-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.today-card { grid-column: span 2; grid-row: auto; }
+.home-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.home-side > .card { flex: 1; }
+
+/* prima riga di "Oggi": tre schede uguali */
+.countdown, .timer-card, .stats-mini { display: flex; flex-direction: column; }
+.countdown .count-row { flex: 1; align-items: center; }
+.empty-count { justify-content: center; }
+.timer-card .clock { flex: 1; display: grid; place-items: center; margin: 0 0 14px; }
+.stats-mini { justify-content: space-between; gap: 6px; padding-top: 14px; padding-bottom: 14px; }
+.stats-mini .mini { flex-direction: row; justify-content: space-between; align-items: center; padding: 8px 2px; border-top: 1px solid var(--line); }
+.stats-mini .mini:first-child { border-top: 0; }
+
+/* note: griglia regolare invece delle colonne sfalsate */
+.notes-grid { columns: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; align-items: stretch; }
+.note { margin-bottom: 0; }
+.note footer { margin-top: auto; }
+
+/* impostazioni: i pulsanti in fondo a ogni scheda */
+.settings > .card { display: flex; flex-direction: column; }
+.settings > .card > .row.gap:last-child { margin-top: auto; padding-top: 6px; }
+
+@media (max-width: 1100px) {
+  .home-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stats-mini { grid-column: 1 / -1; flex-direction: row; }
+  .stats-mini .mini { flex: 1; flex-direction: column; align-items: flex-start; border-top: 0; padding: 0; }
+  .today-card { grid-column: 1 / -1; }
+  .home-side { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 820px) {
+  .home-grid { grid-template-columns: 1fr; }
+  .today-card, .home-side, .stats-mini { grid-column: auto; }
+  .home-side { display: flex; }
+  .timer-card .clock { margin: 2px 0 14px; }
+}.settings > .card > .btn { align-self: flex-start; margin-top: auto; }
