@@ -99,6 +99,9 @@ const ICONS = {
   image: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
   open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7"/>',
+  grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/>',
+  back: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  trend: '<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>',
 };
 const ic = (name, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
 
@@ -409,18 +412,23 @@ function saveUi() {
   } catch { /* ignore */ }
 }
 
-// tab: compare nella barra in basso su telefono; altrimenti è un'icona in alto a destra.
+// tab: compare nella barra in basso su telefono; le altre sono nel pannello "Altro".
 const VIEWS = [
-  { id: 'home', label: 'Oggi', icon: 'home', tab: true },
-  { id: 'piano', label: 'Piano', icon: 'plan', tab: true },
-  { id: 'calendario', label: 'Calendario', icon: 'calendar', tab: true },
-  { id: 'materiali', label: 'Materiali', icon: 'folder', tab: true },
-  { id: 'assistente', label: 'Assistente', icon: 'chat', tab: true },
-  { id: 'statistiche', label: 'Statistiche', icon: 'stats' },
-  { id: 'note', label: 'Note', icon: 'notes' },
-  { id: 'impostazioni', label: 'Impostazioni', icon: 'settings' },
+  { id: 'home', label: 'Oggi', icon: 'home', tab: true, hint: 'Piano del giorno, timer e prossimo esame' },
+  { id: 'piano', label: 'Piano', icon: 'plan', tab: true, hint: 'Attività per materia o per giorno' },
+  { id: 'calendario', label: 'Calendario', icon: 'calendar', tab: true, hint: 'Esami, consegne e giorni di studio' },
+  { id: 'materie', label: 'Materie', icon: 'book', tab: true, hint: 'Tutto su ogni materia in un posto' },
+  { id: 'assistente', label: 'Assistente', icon: 'chat', tab: true, hint: 'Domande veloci all\'AI' },
+  { id: 'libretto', label: 'Libretto', icon: 'exam', hint: 'Voti, media e CFU' },
+  { id: 'materiali', label: 'Materiali', icon: 'folder', hint: 'Dispense, appunti e slide' },
+  { id: 'statistiche', label: 'Statistiche', icon: 'stats', hint: 'Ore di studio e costanza' },
+  { id: 'note', label: 'Note', icon: 'notes', hint: 'Appunti veloci' },
+  { id: 'impostazioni', label: 'Impostazioni', icon: 'settings', hint: 'Account, chiave AI, backup' },
 ];
-const currentView = () => { const h = location.hash.slice(1); return VIEWS.some((v) => v.id === h) ? h : 'home'; };
+/** L'indirizzo è "#vista" oppure "#vista/parametro" (es. "#materie/<id materia>"). */
+const routeParts = () => location.hash.slice(1).split('/');
+const currentView = () => { const h = routeParts()[0]; return VIEWS.some((v) => v.id === h) ? h : 'home'; };
+const routeArg = () => decodeURIComponent(routeParts()[1] || '');
 
 /* ---------------------------------------------------------------- shell */
 let shellReady = false;
@@ -445,15 +453,35 @@ function renderShell() {
           <div class="topbar-right">
             <a href="#home" class="timer-chip" id="timer-chip" hidden>${ic('clock')}<span data-clock>00:00:00</span></a>
             <span data-sync class="sync only-mobile"><i></i></span>
-            ${VIEWS.filter((v) => !v.tab).map((v) => `<a href="#${v.id}" class="icon-btn only-mobile" data-nav="${v.id}" aria-label="${v.label}" title="${v.label}">${ic(v.icon)}</a>`).join('')}
           </div>
         </header>
         <div id="view" class="view"></div>
       </main>
-      <nav class="tabbar">${nav('tab')}</nav>
+      <nav class="tabbar">${nav('tab')}
+        <button class="nav-item" data-action="menu-open" data-nav-more aria-label="Altre sezioni">${ic('grid')}<span>Altro</span></button>
+      </nav>
+      <div class="sheet-backdrop" id="sheet" hidden>
+        <div class="sheet" role="dialog" aria-label="Tutte le sezioni">
+          <div class="sheet-handle"></div>
+          <div class="sheet-head"><b>Tutte le sezioni</b><button class="icon-btn" data-action="menu-close" aria-label="Chiudi">${ic('x')}</button></div>
+          <div class="sheet-grid">
+            ${VIEWS.map((v) => `<a href="#${v.id}" class="sheet-item" data-nav="${v.id}">
+              <span class="sheet-ic">${ic(v.icon)}</span>
+              <span class="sheet-text"><b>${v.label}</b><span>${v.hint}</span></span>
+            </a>`).join('')}
+          </div>
+        </div>
+      </div>
     </div>`;
   shellReady = true;
   setSyncStatus(sync.status);
+}
+
+function closeSheet() {
+  const s = $('#sheet');
+  if (!s || s.hidden) return;
+  s.classList.remove('open');
+  setTimeout(() => { s.hidden = true; }, 180);
 }
 
 function isEditing() {
@@ -469,7 +497,9 @@ function render(force = false) {
   const view = currentView();
   const meta = VIEWS.find((v) => v.id === view);
   $$('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === view));
-  $('#view-title').textContent = view === 'home' ? greeting() : meta.label;
+  $('[data-nav-more]')?.classList.toggle('active', !meta.tab);
+  const subjDetail = view === 'materie' && routeArg() ? subjectById(routeArg()) : null;
+  $('#view-title').textContent = view === 'home' ? greeting() : subjDetail ? subjDetail.name : meta.label;
   $('#view-date').textContent = cap(fmtLong(new Date()));
   const t = timerState();
   const chip = $('#timer-chip');
@@ -1351,6 +1381,9 @@ function buildContext() {
   lines.push('', 'MATERIALI CARICATI (lo studente può allegarli alla domanda):');
   if (!filesList.length) lines.push('(nessuno)');
   for (const f of filesList.slice(0, 100)) lines.push(`- "${f.name}" | materia: ${sub(f.subjectId)}`);
+  const lib = librettoStats();
+  lines.push('', `LIBRETTO: ${lib.exams.length} esami sostenuti, ${lib.cfuTot}/${lib.cfg.target} CFU, media ponderata ${fmtAvg(lib.wavg)}, media aritmetica ${fmtAvg(lib.avg)}, base di laurea ${fmtAvg(lib.base, 1)}/110.`);
+  for (const e of lib.exams.slice(0, 60)) lines.push(`- ${e.name}: ${gradeLabel(e)} (${e.cfu} CFU${e.date ? `, ${e.date}` : ''})`);
   return lines.join('\n');
 }
 
@@ -1811,7 +1844,304 @@ function attachModal() {
   });
 }
 
-const VIEW_RENDERERS = { home: viewHome, piano: viewPlan, calendario: viewCalendar, materiali: viewFiles, assistente: viewAssistant, statistiche: viewStats, note: viewNotes, impostazioni: viewSettings };
+/* ---------------------------------------------------------------- libretto */
+const librettoCfg = () => ({ lode: 30, target: 180, ...(store.get('libretto-settings') || {}) });
+const examValue = (e, lode) => (e.lode ? lode : e.grade);
+const isGraded = (e) => !e.idoneo && typeof e.grade === 'number';
+const gradeLabel = (e) => (e.idoneo ? 'Idoneo' : e.lode ? '30L' : String(e.grade));
+const fmtAvg = (n, digits = 2) => (n == null || Number.isNaN(n) ? '—' : n.toFixed(digits).replace('.', ','));
+const examForSubject = (sid) => (sid ? store.all('exam').find((e) => e.subjectId === sid) : null);
+
+function librettoStats(extra = null) {
+  const cfg = librettoCfg();
+  const exams = store.all('exam').concat(extra ? [extra] : []);
+  const graded = exams.filter(isGraded);
+  const cfuTot = exams.reduce((a, e) => a + (Number(e.cfu) || 0), 0);
+  const gradedCfu = graded.reduce((a, e) => a + (Number(e.cfu) || 0), 0);
+  const avg = graded.length ? graded.reduce((a, e) => a + examValue(e, cfg.lode), 0) / graded.length : null;
+  const wavg = gradedCfu ? graded.reduce((a, e) => a + examValue(e, cfg.lode) * (Number(e.cfu) || 0), 0) / gradedCfu : null;
+  return { cfg, exams, graded, cfuTot, avg, wavg, base: wavg == null ? null : (wavg * 110) / 30 };
+}
+
+function gradeClass(e) {
+  if (e.idoneo) return 'ok';
+  if (e.lode || e.grade >= 28) return 'top';
+  if (e.grade >= 24) return 'good';
+  return 'base';
+}
+
+function viewLibretto() {
+  const st = librettoStats();
+  const exams = st.exams.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const pct = Math.min(100, Math.round((st.cfuTot / (st.cfg.target || 180)) * 100));
+  const chrono = st.graded.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const maxV = Math.max(30, st.cfg.lode);
+  return `
+    <div class="libretto">
+      <section class="card libretto-summary span-all">
+        <div class="tiles">
+          <div class="tile"><span class="muted small">Media ponderata</span><b class="accent">${fmtAvg(st.wavg)}</b><span class="muted small">pesata sui CFU</span></div>
+          <div class="tile"><span class="muted small">Media aritmetica</span><b>${fmtAvg(st.avg)}</b><span class="muted small">${st.graded.length} esami con voto</span></div>
+          <div class="tile"><span class="muted small">Base di laurea</span><b>${fmtAvg(st.base, 1)}</b><span class="muted small">su 110</span></div>
+          <div class="tile"><span class="muted small">Esami sostenuti</span><b>${st.exams.length}</b><span class="muted small">${st.exams.length - st.graded.length ? `di cui ${st.exams.length - st.graded.length} idoneità` : 'tutti con voto'}</span></div>
+        </div>
+        <div class="cfu-bar">
+          <div class="row between"><span><b>${st.cfuTot}</b> / ${st.cfg.target} CFU</span>
+            <span class="row gap-sm"><span class="muted small">${st.cfuTot >= st.cfg.target ? 'Obiettivo raggiunto 🎓' : `ne mancano ${st.cfg.target - st.cfuTot}`}</span>
+            <button class="icon-btn" data-action="libretto-settings" title="Impostazioni libretto" aria-label="Impostazioni libretto">${ic('settings')}</button></span></div>
+          <div class="progress big"><i style="width:${pct}%"></i></div>
+        </div>
+      </section>
+
+      <section class="card span-all">
+        <header class="card-head"><h2>Esami sostenuti</h2><button class="btn primary sm" data-action="exam-new">${ic('plus')} Registra esame</button></header>
+        ${exams.length ? `<ul class="exam-list">${exams.map((e) => `<li class="exam-row">
+          <span class="exam-date muted small">${e.date ? fmtShort(e.date) + ' ' + e.date.slice(0, 4) : ''}<span class="only-mobile">&nbsp;· ${Number(e.cfu) || 0} CFU</span></span>
+          <span class="exam-name"><b>${esc(e.name)}</b>${subjectById(e.subjectId) ? subjectChip(e.subjectId) : ''}</span>
+          <span class="exam-cfu muted small">${Number(e.cfu) || 0} CFU</span>
+          <span class="grade ${gradeClass(e)}">${gradeLabel(e)}</span>
+          <span class="row">
+            <button class="icon-btn" data-action="exam-edit" data-id="${e.id}" aria-label="Modifica">${ic('edit')}</button>
+            <button class="icon-btn" data-action="exam-delete" data-id="${e.id}" aria-label="Elimina">${ic('trash')}</button>
+          </span>
+        </li>`).join('')}</ul>`
+          : emptyState('Il libretto è vuoto. Registra gli esami che hai già dato per vedere media, CFU e base di laurea.', `<button class="btn primary sm" data-action="exam-new">${ic('plus')} Registra il primo esame</button>`)}
+      </section>
+
+      <section class="card">
+        <header class="card-head"><h2>Andamento dei voti</h2><span class="muted small">in ordine di data</span></header>
+        ${chrono.length ? `<div class="grade-chart">${chrono.map((e) => {
+          const v = examValue(e, st.cfg.lode);
+          return `<div class="gbar ${gradeClass(e)}" title="${esc(e.name)}: ${gradeLabel(e)}">
+            <span class="gbar-val">${gradeLabel(e)}</span>
+            <div class="gbar-track"><div class="gbar-fill" style="height:${Math.max(6, ((v - 17) / (maxV - 17)) * 100)}%"></div></div>
+            <span class="gbar-lbl">${esc(e.name.slice(0, 3))}</span>
+          </div>`;
+        }).join('')}</div>` : '<p class="muted small">Il grafico compare quando registri esami con voto.</p>'}
+      </section>
+
+      <section class="card simulator">
+        <header class="card-head"><h2>${ic('trend', 'sm')} Simulatore</h2><span class="muted small">e se…?</span></header>
+        <p class="muted small">Come cambierebbe la tua media con il prossimo esame?</p>
+        <div class="row2">
+          <label class="field"><span>Voto</span><select id="sim-grade" data-change="sim">${gradeOptions('27')}</select></label>
+          <label class="field"><span>CFU</span><input id="sim-cfu" type="number" min="1" max="30" value="6" inputmode="numeric" data-input="sim"></label>
+        </div>
+        <div id="sim-out" class="sim-out">${simText('27', 6)}</div>
+      </section>
+    </div>`;
+}
+
+function gradeOptions(selected = '', { withIdoneo = false } = {}) {
+  const opts = [['30L', '30 e lode']].concat([...Array(13)].map((_, i) => [String(30 - i), String(30 - i)]));
+  if (withIdoneo) opts.push(['idoneo', 'Idoneità (senza voto)']);
+  return opts.map(([v, l]) => `<option value="${v}" ${v === String(selected) ? 'selected' : ''}>${l}</option>`).join('');
+}
+function parseGrade(v) {
+  if (v === 'idoneo') return { grade: null, lode: false, idoneo: true };
+  if (v === '30L') return { grade: 30, lode: true, idoneo: false };
+  return { grade: Math.min(30, Math.max(18, parseInt(v, 10) || 18)), lode: false, idoneo: false };
+}
+function simText(gradeVal, cfu) {
+  const before = librettoStats();
+  const after = librettoStats({ id: '_sim', name: 'sim', cfu: Number(cfu) || 0, ...parseGrade(gradeVal) });
+  if (!(Number(cfu) > 0)) return '<span class="muted small">Inserisci i CFU dell\'esame.</span>';
+  const diff = before.wavg == null ? null : after.wavg - before.wavg;
+  const sign = diff == null ? '' : diff >= 0 ? '+' : '';
+  return `<div>Media ponderata: <b>${fmtAvg(before.wavg)}</b> → <b class="accent">${fmtAvg(after.wavg)}</b>
+    ${diff == null ? '' : `<span class="badge ${diff >= 0 ? 'ok' : 'danger'}">${sign}${fmtAvg(diff)}</span>`}</div>
+    <div class="muted small">Base di laurea: ${fmtAvg(before.base, 1)} → ${fmtAvg(after.base, 1)} su 110</div>`;
+}
+function updateSim() {
+  const out = $('#sim-out');
+  if (out) out.innerHTML = simText($('#sim-grade').value, $('#sim-cfu').value);
+}
+
+function examModal(e = null, preset = {}) {
+  const x = e || { name: '', subjectId: preset.subjectId || '', cfu: 6, grade: 27, lode: false, idoneo: false, date: today() };
+  const gradeSel = x.idoneo ? 'idoneo' : x.lode ? '30L' : String(x.grade);
+  openModal({
+    title: e ? 'Modifica esame' : 'Registra esame',
+    submitLabel: e ? 'Salva' : 'Registra',
+    body: `
+      <label class="field"><span>Materia (opzionale)</span><select name="subjectId" data-change="exam-subject">${subjectOptions(x.subjectId, { none: 'Nessuna / altro esame' })}</select></label>
+      <label class="field"><span>Nome dell'esame</span><input name="name" required maxlength="120" value="${esc(x.name || (x.subjectId ? subjectName(x.subjectId) : ''))}" placeholder="Es. Analisi 1"></label>
+      <div class="row2">
+        <label class="field"><span>Esito</span><select name="grade">${gradeOptions(gradeSel, { withIdoneo: true })}</select></label>
+        <label class="field"><span>CFU</span><input name="cfu" type="number" min="1" max="30" required value="${esc(x.cfu)}" inputmode="numeric"></label>
+      </div>
+      <label class="field"><span>Data</span><input name="date" type="date" value="${esc(x.date || today())}" max="${today()}"></label>`,
+    onSubmit: (fd) => {
+      const cfu = parseInt(fd.cfu, 10);
+      if (!(cfu > 0)) { toast('Inserisci i CFU'); return false; }
+      const data = { name: fd.name.trim(), subjectId: fd.subjectId || '', cfu, date: fd.date || today(), ...parseGrade(fd.grade) };
+      if (e) store.patch(e.id, data);
+      else { store.put('exam', uid(), { ...data, createdAt: Date.now() }); toast('Esame registrato 🎉'); }
+    },
+  });
+}
+
+function librettoSettingsModal() {
+  const cfg = librettoCfg();
+  openModal({
+    title: 'Impostazioni libretto',
+    body: `
+      <label class="field"><span>CFU totali del corso di laurea</span><input name="target" type="number" min="1" max="400" value="${esc(cfg.target)}" inputmode="numeric"></label>
+      <label class="field"><span>Valore della lode nella media</span><select name="lode">${[30, 31, 32, 33].map((v) => `<option value="${v}" ${v === cfg.lode ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <p class="muted small">Ogni università calcola la lode in modo diverso: controlla il regolamento del tuo corso.</p>`,
+    onSubmit: (fd) => store.put('settings', 'libretto-settings', { target: parseInt(fd.target, 10) || 180, lode: parseInt(fd.lode, 10) || 30 }),
+  });
+}
+
+/* ---------------------------------------------------------------- materie */
+function subjectFacts(s) {
+  const td = today();
+  const tasks = store.all('task').filter((t) => t.subjectId === s.id);
+  const sessions = store.all('session').filter((x) => x.subjectId === s.id);
+  const d30 = ymd(addDays(new Date(), -29));
+  const d7 = ymd(addDays(new Date(), -6));
+  const dls = store.all('deadline').filter((d) => d.subjectId === s.id).sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')));
+  return {
+    p: subjectProgress(s.id),
+    open: sortTasks(tasks.filter((t) => !t.done)),
+    done: tasks.filter((t) => t.done).sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)),
+    upcoming: dls.filter((d) => d.date >= td),
+    past: dls.filter((d) => d.date < td).reverse(),
+    nextExam: dls.find((d) => d.date >= td && d.type === 'esame'),
+    files: store.all('file').filter((f) => f.subjectId === s.id).sort((a, b) => (b.uploadedAt || 0) - (a.uploadedAt || 0)),
+    notes: store.all('note').filter((n) => n.subjectId === s.id).sort((a, b) => (Number(!!b.pinned) - Number(!!a.pinned)) || ((b.createdAt || 0) - (a.createdAt || 0))),
+    sessions,
+    msTotal: sessions.reduce((a, x) => a + (x.ms || 0), 0),
+    ms30: sessions.filter((x) => x.date >= d30).reduce((a, x) => a + (x.ms || 0), 0),
+    ms7: sessions.filter((x) => x.date >= d7).reduce((a, x) => a + (x.ms || 0), 0),
+    exam: examForSubject(s.id),
+  };
+}
+
+function viewSubjects() {
+  const sel = routeArg() ? subjectById(routeArg()) : null;
+  if (sel) return viewSubjectDetail(sel);
+  const subs = subjects();
+  if (!subs.length) {
+    return emptyState('Non hai ancora materie. Aggiungine una: qui troverai tutto quello che la riguarda, cioè attività, scadenze, materiali, note e ore di studio.',
+      `<button class="btn primary" data-action="subject-new">${ic('plus')} Aggiungi materia</button>`);
+  }
+  return `
+    <div class="subject-grid">
+      ${subs.map((s) => {
+        const f = subjectFacts(s);
+        const next = f.upcoming[0];
+        return `<a href="#materie/${s.id}" class="card subject-card" style="--c:${esc(s.color)}">
+          <div class="subject-top">
+            <h2><span class="dot"></span>${esc(s.name)}</h2>
+            ${f.exam ? `<span class="grade ${gradeClass(f.exam)}">${gradeLabel(f.exam)}</span>` : ''}
+          </div>
+          <div class="progress"><i style="width:${f.p.pct}%"></i></div>
+          <div class="muted small">${f.p.done}/${f.p.total} attività completate · ${f.p.pct}%</div>
+          <ul class="subject-facts">
+            <li>${ic('flag', 'sm')} ${next ? `${esc(next.title)} · <b>${relDays(daysBetween(today(), next.date))}</b>` : '<span class="muted">Nessuna scadenza</span>'}</li>
+            <li>${ic('clock', 'sm')} ${fmtDur(f.ms30)} di studio negli ultimi 30 giorni</li>
+            <li>${ic('folder', 'sm')} ${f.files.length} file · ${f.notes.length} note · ${f.open.length} attività da fare</li>
+          </ul>
+          <span class="subject-open">Apri ${ic('chevR', 'sm')}</span>
+        </a>`;
+      }).join('')}
+      <button class="card subject-card add" data-action="subject-new">${ic('plus')}<span>Nuova materia</span></button>
+    </div>`;
+}
+
+function viewSubjectDetail(s) {
+  const f = subjectFacts(s);
+  const td = today();
+  // ultimi 14 giorni di studio
+  const byDay = {};
+  for (const x of f.sessions) byDay[x.date] = (byDay[x.date] || 0) + (x.ms || 0);
+  const days14 = [...Array(14)].map((_, i) => ymd(addDays(new Date(), i - 13)));
+  const max14 = Math.max(3600000, ...days14.map((k) => byDay[k] || 0));
+  const canDrag = false;
+  return `
+    <a href="#materie" class="back-link">${ic('back', 'sm')} Tutte le materie</a>
+
+    <section class="card subject-hero" style="--c:${esc(s.color)}">
+      <div class="hero-main">
+        <div class="hero-title"><span class="dot big"></span>
+          <div><h2>${esc(s.name)}</h2><p class="muted small">${f.p.done}/${f.p.total} attività completate · ${f.p.pct}%</p></div>
+        </div>
+        <div class="hero-actions">
+          <button class="btn primary sm" data-action="subject-study" data-id="${s.id}">${ic('play')} Studia ora</button>
+          <button class="btn sm" data-action="plan-ask" data-id="${s.id}">${ic('sparkle')} Chiedi all'assistente</button>
+          <button class="icon-btn" data-action="subject-edit" data-id="${s.id}" title="Modifica materia" aria-label="Modifica materia">${ic('edit')}</button>
+        </div>
+      </div>
+      <div class="progress"><i style="width:${f.p.pct}%"></i></div>
+      <div class="hero-tiles">
+        <div class="tile"><span class="muted small">Prossimo esame</span>${f.nextExam
+          ? `<b>${daysBetween(td, f.nextExam.date) === 0 ? 'Oggi!' : relDays(daysBetween(td, f.nextExam.date))}</b><span class="muted small">${cap(fmtLong(parseYmd(f.nextExam.date)))}</span>`
+          : `<b>—</b><button class="link small" data-action="deadline-new" data-type="esame" data-subject="${s.id}">Aggiungi la data</button>`}</div>
+        <div class="tile"><span class="muted small">Da fare</span><b>${f.open.length}</b><span class="muted small">attività</span></div>
+        <div class="tile"><span class="muted small">Studio totale</span><b>${fmtDur(f.msTotal)}</b><span class="muted small">${fmtDur(f.ms7)} negli ultimi 7 giorni</span></div>
+        <div class="tile"><span class="muted small">Libretto</span>${f.exam
+          ? `<b><span class="grade ${gradeClass(f.exam)}">${gradeLabel(f.exam)}</span></b><span class="muted small">${f.exam.cfu} CFU · ${f.exam.date ? fmtShort(f.exam.date) : ''}</span>`
+          : `<b>—</b><button class="link small" data-action="exam-new" data-subject="${s.id}">Registra il voto</button>`}</div>
+      </div>
+    </section>
+
+    <div class="subject-detail-grid">
+      <section class="card">
+        <header class="card-head"><h2>${ic('plan', 'sm')} Attività</h2><button class="icon-btn" data-action="task-new" data-subject="${s.id}" title="Nuova attività" aria-label="Nuova attività">${ic('plus')}</button></header>
+        <form class="quick-add" data-form="quick-task">
+          <input name="title" placeholder="Nuova attività e Invio" autocomplete="off">
+          <input type="hidden" name="subjectId" value="${s.id}">
+          <button class="icon-btn solid" aria-label="Aggiungi">${ic('plus')}</button>
+        </form>
+        ${f.open.length ? `<ul class="task-list">${f.open.map((t) => taskRow(t, { showSubject: false, draggable: canDrag })).join('')}</ul>` : '<p class="muted small pad">Nessuna attività da fare 🎉</p>'}
+        ${f.done.length ? `<details class="done-list"><summary>Completate (${f.done.length})</summary><ul class="task-list">${f.done.slice(0, 50).map((t) => taskRow(t, { showSubject: false })).join('')}</ul></details>` : ''}
+      </section>
+
+      <section class="card">
+        <header class="card-head"><h2>${ic('flag', 'sm')} Scadenze</h2><button class="icon-btn" data-action="deadline-new" data-subject="${s.id}" title="Nuova scadenza" aria-label="Nuova scadenza">${ic('plus')}</button></header>
+        ${f.upcoming.length ? `<ul class="deadline-list">${f.upcoming.map((d) => deadlineRow(d, { actions: true })).join('')}</ul>` : '<p class="muted small pad">Nessuna scadenza in arrivo.</p>'}
+        ${f.past.length ? `<details class="done-list"><summary>Passate (${f.past.length})</summary><ul class="deadline-list">${f.past.map((d) => deadlineRow(d, { actions: true })).join('')}</ul></details>` : ''}
+      </section>
+
+      <section class="card">
+        <header class="card-head"><h2>${ic('folder', 'sm')} Materiali</h2>
+          <label class="btn sm">${ic('upload')} Carica<input type="file" multiple hidden data-change="file-upload" data-subject="${s.id}"></label></header>
+        ${uploading.length ? `<div class="uploading">${uploading.map((u) => `<div class="row gap-sm"><span class="spinner"></span> ${esc(u.name)}…</div>`).join('')}</div>` : ''}
+        ${f.files.length ? `<ul class="file-list">${f.files.map(fileRow).join('')}</ul>` : '<p class="muted small pad">Nessun file. Carica dispense, appunti o slide di questa materia.</p>'}
+      </section>
+
+      <section class="card">
+        <header class="card-head"><h2>${ic('notes', 'sm')} Note</h2></header>
+        <form class="note-inline" data-form="note-new">
+          <textarea name="text" class="autosize" rows="1" placeholder="Un appunto su ${esc(s.name)}…"></textarea>
+          <input type="hidden" name="subjectId" value="${s.id}">
+          <button class="icon-btn solid" aria-label="Aggiungi nota">${ic('plus')}</button>
+        </form>
+        ${f.notes.length ? `<ul class="mini-notes">${f.notes.map((n) => `<li class="${n.pinned ? 'pinned' : ''}">
+          <textarea class="autosize" data-input="note-text" data-id="${n.id}" aria-label="Nota">${esc(n.text)}</textarea>
+          <span class="row">
+            <button class="icon-btn ${n.pinned ? 'on' : ''}" data-action="note-pin" data-id="${n.id}" aria-label="Fissa">${ic('pin')}</button>
+            <button class="icon-btn" data-action="note-delete" data-id="${n.id}" aria-label="Elimina">${ic('trash')}</button>
+          </span>
+        </li>`).join('')}</ul>` : '<p class="muted small pad">Nessuna nota per questa materia.</p>'}
+      </section>
+
+      <section class="card span-all" style="--c:${esc(s.color)}">
+        <header class="card-head"><h2>${ic('stats', 'sm')} Studio negli ultimi 14 giorni</h2>
+          <button class="btn ghost sm" data-action="session-new" data-subject="${s.id}">${ic('plus')} Aggiungi a mano</button></header>
+        <div class="bars bars-14">
+          ${days14.map((k) => `<div class="bar-col ${k === td ? 'today' : ''}">
+            <span class="bar-val">${byDay[k] ? fmtDur(byDay[k]) : ''}</span>
+            <div class="bar-track"><div class="bar" style="height:${((byDay[k] || 0) / max14) * 100}%; background: var(--c)"></div></div>
+            <span class="bar-lbl">${parseYmd(k).getDate()}</span>
+          </div>`).join('')}
+        </div>
+      </section>
+    </div>`;
+}
+
+const VIEW_RENDERERS = { home: viewHome, piano: viewPlan, calendario: viewCalendar, materie: viewSubjects, libretto: viewLibretto, materiali: viewFiles, assistente: viewAssistant, statistiche: viewStats, note: viewNotes, impostazioni: viewSettings };
 
 /* ---------------------------------------------------------------- modals */
 function openModal({ title, body, submitLabel = 'Salva', onSubmit }) {
@@ -1939,7 +2269,7 @@ function importTodayModal() {
 }
 
 function deadlineModal(d = null, preset = {}) {
-  const x = d || { title: '', type: preset.type || 'esame', subjectId: '', date: preset.date || today(), time: '' };
+  const x = d || { title: '', type: preset.type || 'esame', subjectId: preset.subjectId || '', date: preset.date || today(), time: '' };
   openModal({
     title: d ? 'Modifica scadenza' : 'Nuova scadenza',
     submitLabel: d ? 'Salva' : 'Aggiungi',
@@ -1981,14 +2311,14 @@ function subjectModal(s = null) {
   });
 }
 
-function sessionModal() {
+function sessionModal(subjectId = '') {
   openModal({
     title: 'Aggiungi sessione a mano',
     submitLabel: 'Aggiungi',
     body: `
       <p class="muted small">Hai studiato senza avviare il timer? Registralo qui.</p>
       <div class="row2">
-        <label class="field"><span>Materia</span><select name="subjectId">${subjectOptions('', { none: 'Studio libero' })}</select></label>
+        <label class="field"><span>Materia</span><select name="subjectId">${subjectOptions(subjectId, { none: 'Studio libero' })}</select></label>
         <label class="field"><span>Giorno</span><input type="date" name="date" required value="${today()}" max="${today()}"></label>
       </div>
       <div class="row2">
@@ -2028,13 +2358,28 @@ const ACTIONS = {
     closeModal();
   },
   'import-today': () => importTodayModal(),
+  'menu-open': () => { const s = $('#sheet'); if (s) { s.hidden = false; requestAnimationFrame(() => s.classList.add('open')); } },
+  'menu-close': () => closeSheet(),
   'plan-mode': (el) => { ui.planMode = el.dataset.mode; saveUi(); render(true); },
   'plan-week': (el) => { ui.planWeek = Math.max(0, (ui.planWeek || 0) + Number(el.dataset.dir)); render(true); },
   'plan-week-ask': () => {
     ui.chatDraft = 'Distribuisci le mie attività da fare sui prossimi 7 giorni, tenendo conto delle scadenze e degli esami. Non mettere troppe cose nello stesso giorno.';
     location.hash = '#assistente';
   },
-  'deadline-new': (el) => deadlineModal(null, { date: el.dataset.date, type: el.dataset.type }),
+  'deadline-new': (el) => deadlineModal(null, { date: el.dataset.date, type: el.dataset.type, subjectId: el.dataset.subject }),
+  'subject-study': (el) => {
+    const s = store.get(el.dataset.id);
+    if (!s) return;
+    ui.timerSubject = s.id;
+    saveUi();
+    if (timerState().state !== 'idle') { toast('C\'è già una sessione in corso: terminala dalla pagina Oggi'); return; }
+    timerStart();
+    toast(`Timer avviato: ${s.name}`);
+  },
+  'exam-new': (el) => examModal(null, { subjectId: el.dataset.subject || '' }),
+  'exam-edit': (el) => { const e = store.get(el.dataset.id); if (e) examModal(e); },
+  'exam-delete': (el) => { const e = store.get(el.dataset.id); if (e && confirm(`Eliminare l'esame "${e.name}" dal libretto?`)) store.remove(e.id); },
+  'libretto-settings': () => librettoSettingsModal(),
   'deadline-edit': (el) => { const d = store.get(el.dataset.id); if (d) deadlineModal(d); },
   'deadline-delete': (el) => { const d = store.get(el.dataset.id); if (d && confirm(`Eliminare la scadenza "${d.title}"?`)) store.remove(d.id); },
   'subject-new': () => subjectModal(),
@@ -2045,13 +2390,14 @@ const ACTIONS = {
     const n = store.all('task').filter((t) => t.subjectId === s.id).length;
     if (!confirm(`Eliminare la materia "${s.name}"?${n ? `\nLe sue ${n} attività resteranno, "senza materia".` : ''}`)) return;
     if (ui.planSubject === s.id) { ui.planSubject = 'all'; saveUi(); }
+    if (currentView() === 'materie' && routeArg() === s.id) history.replaceState(null, '', '#materie');
     store.remove(s.id);
   },
   'timer-start': () => timerStart(),
   'timer-pause': () => timerPause(),
   'timer-resume': () => timerResume(),
   'timer-stop': () => timerStop(),
-  'session-new': () => sessionModal(),
+  'session-new': (el) => sessionModal(el.dataset.subject || ''),
   'session-delete': (el) => { if (confirm('Eliminare questa sessione di studio?')) store.remove(el.dataset.id); },
   'note-pin': (el) => { const n = store.get(el.dataset.id); if (n) store.patch(n.id, { pinned: !n.pinned }); },
   'note-delete': (el) => { if (confirm('Eliminare questa nota?')) store.remove(el.dataset.id); },
@@ -2142,9 +2488,14 @@ const CHANGES = {
   },
   'timer-subject': (el) => { ui.timerSubject = el.value; saveUi(); },
   'upload-subject': (el) => { ui.uploadSubject = el.value; saveUi(); },
+  'sim': () => updateSim(),
+  'exam-subject': (el) => {
+    const name = el.form && el.form.elements.name;
+    if (name && el.value && (!name.value.trim() || subjects().some((s) => s.name === name.value.trim()))) name.value = subjectName(el.value);
+  },
   'file-upload': (el) => {
     const list = el.files;
-    if (list && list.length) uploadFiles(list, currentUploadSubject());
+    if (list && list.length) uploadFiles(list, el.dataset.subject || currentUploadSubject());
     el.value = '';
   },
   'toggle-done': (el) => { ui.showDone = el.checked; saveUi(); render(true); },
@@ -2215,6 +2566,7 @@ function bindEvents() {
     if (el.matches('textarea.autosize')) autosize(el);
     if (el.dataset.input === 'note-text') saveNoteText(el.dataset.id, el.value);
     if (el.dataset.input === 'chat-draft') ui.chatDraft = el.value;
+    if (el.dataset.input === 'sim') updateSim();
   });
   // Invio per mandare il messaggio in chat (Maiusc+Invio per andare a capo), solo con tastiera fisica.
   document.addEventListener('keydown', (e) => {
@@ -2279,7 +2631,10 @@ function bindEvents() {
     setTimeout(() => { if (pendingRender && !isEditing() && !$('#modal').open) render(); }, 50);
   });
   $('#modal').addEventListener('close', () => { if (pendingRender) setTimeout(() => render(), 0); });
-  window.addEventListener('hashchange', () => { render(true); window.scrollTo(0, 0); });
+  window.addEventListener('hashchange', () => { closeSheet(); render(true); window.scrollTo(0, 0); });
+  // Pannello "Altro": si chiude toccando fuori o premendo Esc.
+  document.addEventListener('click', (e) => { if (e.target.id === 'sheet' || e.target.closest('.sheet-item')) closeSheet(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
   window.addEventListener('online', () => sync.run());
   window.addEventListener('offline', () => { if (sync.user) setSyncStatus('offline'); });
   document.addEventListener('visibilitychange', () => {

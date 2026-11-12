@@ -9,6 +9,8 @@ Cosa contiene:
 - **Piano**: attività con checkbox, priorità e scadenza, viste **per materia** oppure **per giorno** (i prossimi 7 giorni). Con 📅 scegli in che giorno fare un'attività (su PC puoi anche trascinarla), con ☀ la metti nel "piano di oggi". Le attività non completate restano nel piano di oggi finché non le fai
 - **Piano di oggi**: oltre a scrivere nuove attività, con **Importa dal piano** scegli quelle che hai già nel Piano
 - **Calendario**: vista mensile con esami, consegne e altre scadenze
+- **Materie**: scegli una materia e trovi tutto in un posto: attività, scadenze, materiali, note, ore di studio, voto nel libretto, e i pulsanti "Studia ora" e "Chiedi all'assistente"
+- **Libretto**: esami sostenuti con voto (anche 30 e lode e idoneità) e CFU. Calcola media ponderata, media aritmetica, base di laurea su 110 e CFU mancanti, mostra il grafico dei voti e ha un simulatore ("che media avrei con un 28 da 9 CFU?")
 - **Statistiche**: ore studiate per giorno e per materia, streak di giorni consecutivi, mappa della costanza e sessioni recenti
 - **Materiali**: carichi dispense, appunti, slide e immagini divisi per materia, e li apri da qualsiasi dispositivo
 - **Assistente**: fai domande veloci all'intelligenza artificiale, Google Gemini con il piano gratuito ("cosa studio oggi?", "riorganizza il piano di Analisi"). Conosce le tue materie, attività e scadenze, legge i materiali che alleghi e propone modifiche al piano che applichi con un tocco
