@@ -2,6 +2,8 @@
 
 App per pianificare lo studio. Si installa su **Windows, Linux e iPhone** come PWA (webapp installabile) e funziona anche offline.
 
+**App online: https://aldetor00.github.io/studyboard/**
+
 Cosa contiene:
 - **Oggi**: countdown al prossimo esame, timer delle sessioni di studio, piano del giorno, prossime scadenze e avanzamento per materia
 - **Piano**: attività divise per materia, con checkbox, priorità e data entro cui finirle. Con ☀ un'attività entra nel "piano di oggi"
