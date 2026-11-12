@@ -292,6 +292,13 @@ function todayTasks() {
   }));
 }
 
+/** Se nel Piano è visibile una sola materia, è quella proposta per le nuove attività. */
+function defaultPlanSubject() {
+  const hidden = new Set(ui.planHidden || []);
+  const vis = subjects().filter((s) => !hidden.has(s.id));
+  return vis.length === 1 && vis.length < subjects().length ? vis[0].id : '';
+}
+
 /** "Oggi", "Domani", oppure "gio 14 nov". */
 function dayLabel(k, { long = false } = {}) {
   const n = daysBetween(today(), k);
@@ -396,7 +403,7 @@ const ui = (() => {
   try { saved = JSON.parse(localStorage.getItem(LS_UI)) || {}; } catch { /* ignore */ }
   const now = new Date();
   return {
-    showDone: false, planSubject: 'all', planMode: 'materie', timerSubject: '', filesSubject: 'all', uploadSubject: '', ...saved,
+    showDone: false, planHidden: [], planMode: 'materie', timerSubject: '', filesSubject: 'all', uploadSubject: '', ...saved,
     planWeek: 0,
     chatDraft: '', chatAttachments: [],
     calMonth: new Date(now.getFullYear(), now.getMonth(), 1),
@@ -407,7 +414,7 @@ const ui = (() => {
 function saveUi() {
   try {
     localStorage.setItem(LS_UI, JSON.stringify({
-      showDone: ui.showDone, planSubject: ui.planSubject, planMode: ui.planMode, timerSubject: ui.timerSubject, filesSubject: ui.filesSubject, uploadSubject: ui.uploadSubject,
+      showDone: ui.showDone, planHidden: ui.planHidden, planMode: ui.planMode, timerSubject: ui.timerSubject, filesSubject: ui.filesSubject, uploadSubject: ui.uploadSubject,
     }));
   } catch { /* ignore */ }
 }
@@ -649,7 +656,7 @@ function viewHome() {
         ${tasks.length ? `<div class="progress"><i style="width:${Math.round((doneCount / tasks.length) * 100)}%"></i></div>` : ''}
         <form class="quick-add" data-form="quick-task" data-today="1">
           <input name="title" placeholder="Cosa studi oggi? Scrivi e premi Invio" autocomplete="off">
-          <select name="subjectId" aria-label="Materia">${subjectOptions(ui.planSubject !== 'all' ? ui.planSubject : '', { none: 'Materia…' })}</select>
+          <select name="subjectId" aria-label="Materia">${subjectOptions('', { none: 'Materia…' })}</select>
           <button class="icon-btn solid" aria-label="Aggiungi">${ic('plus')}</button>
         </form>
         ${tasks.length ? `<ul class="task-list">${tasks.map((t) => taskRow(t)).join('')}</ul>`
@@ -734,8 +741,12 @@ function timerCard() {
 function viewPlan() {
   const subs = subjects();
   const all = store.all('task');
-  const filter = ui.planSubject;
-  const visible = all.filter((t) => (ui.showDone || !t.done) && (filter === 'all' || (filter === 'none' ? !subjectById(t.subjectId) : t.subjectId === filter)));
+  const hidden = new Set(ui.planHidden || []);
+  const subjKey = (t) => (subjectById(t.subjectId) ? t.subjectId : 'none');
+  const visible = all.filter((t) => (ui.showDone || !t.done) && !hidden.has(subjKey(t)));
+  const hasOrphans = all.some((t) => !subjectById(t.subjectId));
+  const hiddenCount = [...hidden].filter((k) => k === 'none' ? hasOrphans : subjectById(k)).length;
+  const filter = defaultPlanSubject() || 'all';
 
   const groups = [];
   const groupFor = (s) => ({ id: s ? s.id : 'none', name: s ? s.name : 'Senza materia', color: s ? s.color : 'var(--muted)', tasks: [] });
@@ -745,7 +756,7 @@ function viewPlan() {
   for (const t of visible) (map.get(t.subjectId) || none).tasks.push(t);
   if (none.tasks.length) groups.push(none);
 
-  const shown = groups.filter((g) => g.tasks.length || (filter === g.id));
+  const shown = groups.filter((g) => !hidden.has(g.id) && (g.tasks.length || g.id !== 'none'));
   const doneHidden = all.filter((t) => t.done).length;
   const byDay = ui.planMode === 'giorni';
 
@@ -759,8 +770,9 @@ function viewPlan() {
     </div>
     <div class="toolbar">
       <div class="chips-scroll">
-        <button class="filter ${filter === 'all' ? 'on' : ''}" data-action="plan-filter" data-subject="all">Tutte</button>
-        ${subs.map((s) => `<button class="filter ${filter === s.id ? 'on' : ''}" data-action="plan-filter" data-subject="${s.id}" style="--c:${esc(s.color)}"><i></i>${esc(s.name)}</button>`).join('')}
+        <button class="filter ${hiddenCount ? '' : 'on'}" data-action="plan-show-all" title="Mostra tutte le materie">Tutte</button>
+        ${subs.map((s) => `<button class="filter toggle ${hidden.has(s.id) ? 'off' : 'on-subject'}" data-action="plan-toggle" data-subject="${s.id}" style="--c:${esc(s.color)}" aria-pressed="${!hidden.has(s.id)}" title="${hidden.has(s.id) ? 'Mostra' : 'Nascondi'} ${esc(s.name)}"><i></i>${esc(s.name)}</button>`).join('')}
+        ${hasOrphans ? `<button class="filter toggle ${hidden.has('none') ? 'off' : 'on-subject'}" data-action="plan-toggle" data-subject="none" style="--c:var(--muted)" aria-pressed="${!hidden.has('none')}"><i></i>Senza materia</button>` : ''}
         <button class="filter ghost" data-action="subject-new">${ic('plus', 'sm')} Materia</button>
       </div>
       <div class="row gap">
@@ -768,6 +780,8 @@ function viewPlan() {
         <button class="btn primary" data-action="task-new">${ic('plus')} Nuova attività</button>
       </div>
     </div>
+
+    ${hiddenCount ? `<div class="hidden-note muted small">${ic('x', 'sm')} ${hiddenCount === 1 ? '1 materia nascosta' : `${hiddenCount} materie nascoste`} · tocca una materia per mostrarla di nuovo, oppure <button class="link small" data-action="plan-show-all">mostra tutte</button></div>` : ''}
 
     <form class="quick-add card" data-form="quick-task">
       <input name="title" placeholder="Aggiungi rapidamente un'attività e premi Invio" autocomplete="off">
@@ -2338,7 +2352,7 @@ function sessionModal(subjectId = '') {
 const ACTIONS = {
   'modal-close': () => closeModal(),
   'task-new': (el) => taskModal(null, {
-    subjectId: el.dataset.subject || (ui.planSubject !== 'all' && ui.planSubject !== 'none' ? ui.planSubject : ''),
+    subjectId: el.dataset.subject || (currentView() === 'piano' ? defaultPlanSubject() : ''),
     due: el.dataset.due || '',
     day: el.dataset.day !== undefined ? el.dataset.day : (currentView() === 'home' ? today() : ''),
   }),
@@ -2389,7 +2403,7 @@ const ACTIONS = {
     if (!s) return;
     const n = store.all('task').filter((t) => t.subjectId === s.id).length;
     if (!confirm(`Eliminare la materia "${s.name}"?${n ? `\nLe sue ${n} attività resteranno, "senza materia".` : ''}`)) return;
-    if (ui.planSubject === s.id) { ui.planSubject = 'all'; saveUi(); }
+    if ((ui.planHidden || []).includes(s.id)) { ui.planHidden = ui.planHidden.filter((k) => k !== s.id); saveUi(); }
     if (currentView() === 'materie' && routeArg() === s.id) history.replaceState(null, '', '#materie');
     store.remove(s.id);
   },
@@ -2401,7 +2415,15 @@ const ACTIONS = {
   'session-delete': (el) => { if (confirm('Eliminare questa sessione di studio?')) store.remove(el.dataset.id); },
   'note-pin': (el) => { const n = store.get(el.dataset.id); if (n) store.patch(n.id, { pinned: !n.pinned }); },
   'note-delete': (el) => { if (confirm('Eliminare questa nota?')) store.remove(el.dataset.id); },
-  'plan-filter': (el) => { ui.planSubject = el.dataset.subject; saveUi(); render(true); },
+  'plan-toggle': (el) => {
+    const k = el.dataset.subject;
+    const h = new Set(ui.planHidden || []);
+    if (h.has(k)) h.delete(k); else h.add(k);
+    ui.planHidden = [...h];
+    saveUi();
+    render(true);
+  },
+  'plan-show-all': () => { ui.planHidden = []; saveUi(); render(true); },
   'cal-prev': () => { ui.calMonth = new Date(ui.calMonth.getFullYear(), ui.calMonth.getMonth() - 1, 1); render(true); },
   'cal-next': () => { ui.calMonth = new Date(ui.calMonth.getFullYear(), ui.calMonth.getMonth() + 1, 1); render(true); },
   'cal-today': () => { const n = new Date(); ui.calMonth = new Date(n.getFullYear(), n.getMonth(), 1); ui.calSelected = today(); render(true); },

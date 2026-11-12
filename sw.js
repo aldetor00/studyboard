@@ -1,6 +1,6 @@
 ﻿/* StudyBoard — service worker: fa funzionare l'app anche offline.
    Quando modifichi i file dell'app, aumenta VERSION per forzare l'aggiornamento. */
-const VERSION = 'v13';
+const VERSION = 'v14';
 const CACHE = `studyboard-${VERSION}`;
 const SHELL = [
   './',
