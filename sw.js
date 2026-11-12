@@ -1,6 +1,6 @@
 ﻿/* StudyBoard — service worker: fa funzionare l'app anche offline.
    Quando modifichi i file dell'app, aumenta VERSION per forzare l'aggiornamento. */
-const VERSION = 'v10';
+const VERSION = 'v11';
 const CACHE = `studyboard-${VERSION}`;
 const SHELL = [
   './',
@@ -46,9 +46,11 @@ self.addEventListener('fetch', (event) => {
   }
 
   // File dell'app: prima la rete (così gli aggiornamenti arrivano subito), poi la cache se offline.
+  // "no-cache" obbliga il browser a chiedere al server se il file è cambiato,
+  // invece di usare per 10 minuti la copia vecchia (GitHub Pages fa così).
   if (url.origin === self.location.origin) {
     event.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-cache' })
         .then((res) => {
           if (res.ok) {
             const copy = res.clone();
